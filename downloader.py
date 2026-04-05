@@ -428,21 +428,29 @@ def _fallback_format_without_ffmpeg(quality: str, is_audio: bool) -> str:
         return "bestaudio[ext=m4a]/bestaudio/best"
 
     mapping = {
-        "best": (
-            "best*[vcodec!=none][acodec!=none][height<=1080]"
-            "/best[ext=mp4][height<=1080]"
-            "/best[height<=1080]/best"
-        ),
-        "720p": (
-            "best*[vcodec!=none][acodec!=none][height<=720]"
-            "/best[ext=mp4][height<=720]"
-            "/best[height<=720]/best"
-        ),
-        "360p": (
-            "best*[vcodec!=none][acodec!=none][height<=360]"
-            "/best[ext=mp4][height<=360]"
-            "/best[height<=360]/best"
-        ),
+        "best": "best[ext=mp4][height<=1080]/best[height<=1080]/best",
+        "720p": "best[ext=mp4][height<=720]/best[height<=720]/best",
+        "360p": "best[ext=mp4][height<=360]/best[height<=360]/best",
+    }
+    return mapping.get(quality, mapping["best"])
+
+
+def _platform_format_without_ffmpeg(quality: str, is_audio: bool, platform: str) -> str:
+    """Return safer no-ffmpeg format strings per platform.
+
+    YouTube uses dedicated fallback logic; other platforms should avoid
+    restrictive AV selectors that can drop single-stream Instagram/Pinterest media.
+    """
+    if platform == "youtube":
+        return _fallback_format_without_ffmpeg(quality, is_audio)
+
+    if is_audio:
+        return "bestaudio[ext=m4a]/bestaudio/best"
+
+    mapping = {
+        "best": "best[ext=mp4]/best",
+        "720p": "best[ext=mp4][height<=720]/best[height<=720]/best",
+        "360p": "best[ext=mp4][height<=360]/best[height<=360]/best",
     }
     return mapping.get(quality, mapping["best"])
 
@@ -588,6 +596,7 @@ def _is_youtube_verification_error(err_text: str) -> bool:
     text = err_text.lower()
     markers = (
         "sign in to confirm you're not a bot",
+        "sign in to confirm you\u2019re not a bot",
         "sign in to confirm you are not a bot",
         "this helps protect our community",
         "please sign in",
@@ -694,13 +703,21 @@ async def download_media(
     is_audio = quality == "audio"
     format_str = QUALITY_OPTIONS.get(quality, QUALITY_OPTIONS["best"])
     if not _HAS_FFMPEG:
-        format_str = _fallback_format_without_ffmpeg(quality, is_audio)
-        logger.warning("ffmpeg not found: using non-merge fallback format for quality '%s'", quality)
+        format_str = _platform_format_without_ffmpeg(quality, is_audio, platform)
+        logger.warning(
+            "ffmpeg not found: using non-merge fallback format for quality '%s' on %s",
+            quality,
+            platform,
+        )
 
     if platform == "youtube":
         format_candidates = _youtube_format_candidates(quality, is_audio)
     else:
-        format_candidates = [format_str]
+        # Try a couple of safe progressive fallbacks for non-YouTube platforms.
+        if is_audio:
+            format_candidates = [format_str, "bestaudio/best", "best"]
+        else:
+            format_candidates = [format_str, "best[ext=mp4]/best", "best"]
 
     result = {
         "success": False,
