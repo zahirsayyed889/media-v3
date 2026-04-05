@@ -478,6 +478,9 @@ def admin_panel_message() -> str:
 
 def admin_stats_message(stats: dict) -> str:
     total_size = format_size(stats["total_bytes"])
+    total_cached = stats.get("total_cached", 0)
+    cached_size = format_size(stats.get("cached_bytes", 0))
+    
     top_lines = ""
     for i, u in enumerate(stats.get("top_users", []), 1):
         name = u.get("first_name") or u.get("username") or str(u["user_id"])
@@ -497,7 +500,11 @@ def admin_stats_message(stats: dict) -> str:
         f"  🖼  Images:            <b>{stats['total_images']}</b>\n"
         f"  🎵  Audios:            <b>{stats.get('total_audios', 0)}</b>\n"
         f"  ❌  Failed:            <b>{stats['failed_downloads']}</b>\n"
-        f"  💾  Total Size:        <b>{total_size}</b>\n\n"
+        f"  💾  Total GB Sent:     <b>{total_size}</b>\n\n"
+        f"{'─' * 32}\n\n"
+        f"  ⚡  <b>System Health & Cache</b>\n"
+        f"  📦  Cached Files:      <b>{total_cached} items</b>\n"
+        f"  💽  Cache Footprint:   <b>{cached_size}</b>\n\n"
         f"{'─' * 32}\n\n"
         f"  🏆  <b>Top Users:</b>\n\n"
         f"{top_lines}\n"

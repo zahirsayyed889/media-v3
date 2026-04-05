@@ -51,6 +51,7 @@ from database import (
     get_global_stats,
     get_all_user_ids, ban_user, unban_user, log_event,
     get_user_lang, set_user_lang, get_user_quality, set_user_quality,
+    get_cached_file, set_cached_file,
 )
 from downloader import (
     detect_platform, extract_url,
@@ -551,14 +552,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import platform as plat
             import sys
             folder_mb = get_folder_size_mb()
+            active_users = len(_active_downloads)
+            rate_tracked = sum(1 for v in _user_rate_windows.values() if len(v) > 0)
+            
             await query.edit_message_text(
-                f"{'═' * 32}\n   🔧  <b>System Info</b>\n{'═' * 32}\n\n"
+                f"{'═' * 32}\n   🔧  <b>System & Rate Limits</b>\n{'═' * 32}\n\n"
+                f"  🛡️  <b>Anti-Spam Controls:</b>\n"
+                f"  🚦  Requests: <b>{MAX_DOWNLOADS_PER_MINUTE} links / min</b>\n"
+                f"  ⚖️  Concurrent Downloads: <b>{MAX_CONCURRENT_DOWNLOADS}</b>\n\n"
+                f"{'─' * 32}\n\n"
+                f"  📡  <b>Live Operations:</b>\n"
+                f"  🔄  Active Streams: <b>{active_users} / {MAX_CONCURRENT_DOWNLOADS}</b>\n"
+                f"  ⏱  Users Monitored: <b>{rate_tracked}</b>\n\n"
+                f"{'─' * 32}\n\n"
                 f"  🤖  Bot:    <b>{BOT_NAME} v{BOT_VERSION}</b>\n"
                 f"  🐍  Python: <b>{sys.version.split()[0]}</b>\n"
                 f"  💻  OS:     <b>{plat.system()} {plat.release()}</b>\n"
                 f"  📂  Dir:    <code>{DOWNLOAD_DIR}</code>\n"
                 f"  💾  Disk:   <b>{folder_mb:.1f} MB used</b>\n\n"
-                f"  <i>⚡ All systems operational</i>",
+                f"  <i>⚡ All systems secure & operational</i>",
                 parse_mode=constants.ParseMode.HTML,
                 reply_markup=admin_keyboard(),
             )
@@ -646,6 +658,38 @@ async def _perform_download(message, user, url, platform, quality, lang, context
         _active_downloads.add(user.id)
 
     try:
+        cached = get_cached_file(url, quality)
+        if cached:
+            file_id, file_type, file_size, duration = cached
+            try:
+                caption = download_complete_caption(
+                    file_type, file_size, duration, platform, lang
+                ) + "\n\n⚡ <i>Delivered instantly from cache</i>"
+                
+                if file_type == "audio":
+                    await message.reply_audio(
+                        audio=file_id,
+                        caption=caption,
+                        parse_mode=constants.ParseMode.HTML,
+                        reply_markup=after_download_keyboard(lang),
+                    )
+                else:
+                    await message.reply_video(
+                        video=file_id,
+                        caption=caption,
+                        parse_mode=constants.ParseMode.HTML,
+                        reply_markup=after_download_keyboard(lang),
+                    )
+                
+                record_download(
+                    user.id, url, file_type, file_size,
+                    status="success", error_message="cached", platform=platform
+                )
+                return
+            except Exception as e:
+                logger.warning(f"Failed to send cached file_id '{file_id}': {e}. Falling back to download.")
+                # Fall through to download if file_id is somehow invalid
+
         try:
             await asyncio.wait_for(_global_download_semaphore.acquire(), timeout=20)
             semaphore_acquired = True
@@ -669,12 +713,43 @@ async def _perform_download(message, user, url, platform, quality, lang, context
         if status_msg is None:
             raise RuntimeError("Could not send status message.")
 
+        loop = asyncio.get_running_loop()
+        last_progress_time = 0
+        def progress_hook(d):
+            nonlocal last_progress_time
+            if d['status'] == 'downloading':
+                now = time.time()
+                if now - last_progress_time > 3.0:  # Only update every 3 seconds to avoid ratelimits
+                    last_progress_time = now
+                    try:
+                        p = d.get('_percent_str', '0%').strip()
+                        s = d.get('_speed_str', 'Unknown speed').strip()
+                        eta = d.get('_eta_str', 'Unknown ETA').strip()
+                        
+                        text = (
+                            f"⬇️  <b>Downloading ({platform.capitalize()})</b>\n\n"
+                            f"📊  <b>Progress:</b> {p}\n"
+                            f"⚡  <b>Speed:</b> {s}\n"
+                            f"⏱  <b>ETA:</b> {eta}\n\n"
+                            f"<i>Powered by {DEVELOPER_NAME}</i>"
+                        )
+                        asyncio.run_coroutine_threadsafe(
+                            _telegram_with_retry(
+                                lambda: status_msg.edit_text(text, parse_mode=constants.ParseMode.HTML),
+                                "update progress"
+                            ),
+                            loop
+                        )
+                    except Exception as e:
+                        pass
+
         result = await download_media(
             url,
             chat_id,
             quality=quality,
             platform=platform,
             job_prefix=job_prefix,
+            progress_callback=progress_hook
         )
 
         if not result["success"]:
@@ -732,12 +807,13 @@ async def _perform_download(message, user, url, platform, quality, lang, context
         )
 
         sent = False
+        sent_msg = None
         max_attempts = max(2, TELEGRAM_API_RETRIES + 1)
         for attempt in range(max_attempts):
             try:
                 if result["type"] == "audio":
                     with open(result["path"], "rb") as f:
-                        await message.reply_audio(
+                        sent_msg = await message.reply_audio(
                             audio=f,
                             caption=caption,
                             parse_mode=constants.ParseMode.HTML,
@@ -751,7 +827,7 @@ async def _perform_download(message, user, url, platform, quality, lang, context
                         )
                 elif result["type"] == "video":
                     with open(result["path"], "rb") as f:
-                        await message.reply_video(
+                        sent_msg = await message.reply_video(
                             video=f,
                             caption=caption,
                             parse_mode=constants.ParseMode.HTML,
@@ -767,8 +843,7 @@ async def _perform_download(message, user, url, platform, quality, lang, context
                         )
                 else:
                     with open(result["path"], "rb") as f:
-                        await message.reply_photo(
-                            chat_id=chat_id,
+                        sent_msg = await message.reply_photo(
                             photo=f,
                             caption=caption,
                             parse_mode=constants.ParseMode.HTML,
@@ -792,6 +867,21 @@ async def _perform_download(message, user, url, platform, quality, lang, context
                 break
 
         if sent:
+            if sent_msg:
+                file_id = None
+                if result["type"] == "audio" and sent_msg.audio:
+                    file_id = sent_msg.audio.file_id
+                elif result["type"] == "video" and sent_msg.video:
+                    file_id = sent_msg.video.file_id
+                elif sent_msg.photo:
+                    file_id = sent_msg.photo[-1].file_id
+                
+                if file_id:
+                    set_cached_file(
+                        url, quality, file_id, result["type"], 
+                        file_size, int(result["duration"] or 0)
+                    )
+
             record_download(user.id, url, result["type"], file_size,
                             result["duration"], status="success", platform=platform)
             log_event(

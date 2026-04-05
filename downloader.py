@@ -655,7 +655,10 @@ def _flatten_info(info: dict | None) -> dict | None:
     return info
 
 
-def _download_with_ydl(url: str, ydl_opts: dict):
+def _download_with_ydl(url: str, ydl_opts: dict, progress_hook=None):
+    if progress_hook:
+        ydl_opts["progress_hooks"] = [progress_hook]
+        
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         info = _flatten_info(info)
@@ -696,6 +699,7 @@ async def download_media(
     quality: str = "best",
     platform: str = "instagram",
     job_prefix: str | None = None,
+    progress_callback=None
 ) -> dict:
     """Download media via yt-dlp and return normalized metadata/result."""
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -756,7 +760,7 @@ async def download_media(
             try:
                 info, filepath = await loop.run_in_executor(
                     None,
-                    partial(_download_with_ydl, url, ydl_opts),
+                    partial(_download_with_ydl, url, ydl_opts, progress_callback),
                 )
             except yt_dlp.utils.DownloadError as exc:
                 classification = _classify_error(str(exc))

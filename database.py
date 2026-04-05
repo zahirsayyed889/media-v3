@@ -124,6 +124,17 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active)")
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS file_cache (
+                cache_key  TEXT PRIMARY KEY,
+                file_id    TEXT NOT NULL,
+                file_type  TEXT NOT NULL,
+                file_size  INTEGER DEFAULT 0,
+                duration   INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
         # Migration: add columns to existing deployments without data loss.
         _safe_add_column(cursor, "users", "preferred_lang", "TEXT DEFAULT 'en'")
         _safe_add_column(cursor, "users", "preferred_quality", "TEXT DEFAULT 'best'")
@@ -365,6 +376,8 @@ def get_global_stats() -> dict:
             "SELECT COUNT(*) FROM downloads "
             "WHERE status = 'success' AND downloaded_at > datetime('now', '-1 day')"
         )
+        total_cached = _count("SELECT COUNT(*) FROM file_cache")
+        cached_bytes = conn.execute("SELECT COALESCE(SUM(file_size), 0) FROM file_cache").fetchone()[0]
 
         top_users = conn.execute("""
             SELECT user_id, first_name, username, total_downloads
@@ -382,6 +395,8 @@ def get_global_stats() -> dict:
             "total_audios": total_audios,
             "failed_downloads": failed_downloads,
             "banned_users": banned_users,
+            "total_cached": total_cached,
+            "cached_bytes": cached_bytes,
             "top_users": [dict(u) for u in top_users],
         }
 
@@ -406,3 +421,29 @@ def log_event(event_type: str, event_data: str = None):
         )
 
     _run_db(_op, write=True)
+
+
+def get_cached_file(url: str, quality: str) -> tuple[str, str, int, int] | None:
+    cache_key = f"{url}::{quality}"
+    def _op(conn: sqlite3.Connection):
+        return conn.execute(
+            "SELECT file_id, file_type, file_size, duration FROM file_cache WHERE cache_key = ?",
+            (cache_key,)
+        ).fetchone()
+
+    row = _run_db(_op)
+    if row:
+        return row["file_id"], row["file_type"], row["file_size"], row["duration"]
+    return None
+
+
+def set_cached_file(url: str, quality: str, file_id: str, file_type: str, file_size: int, duration: int) -> None:
+    cache_key = f"{url}::{quality}"
+    def _op(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "INSERT OR REPLACE INTO file_cache (cache_key, file_id, file_type, file_size, duration) VALUES (?, ?, ?, ?, ?)",
+            (cache_key, file_id, file_type, file_size, duration)
+        )
+
+    _run_db(_op, write=True)
+

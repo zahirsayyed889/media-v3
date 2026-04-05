@@ -48,7 +48,7 @@ def _parse_admin_ids(value: str | None) -> tuple[list[int], list[str]]:
 # -- Bot Token --
 # For local testing (without env vars), paste your token below.
 # Keep this empty in production and use BOT_TOKEN env variable.
-LOCAL_BOT_TOKEN = "8788182039:AAG-zPiXQXdkmUikMzczfeiXPpupU7XS47w"
+LOCAL_BOT_TOKEN = ""
 BOT_TOKEN = (LOCAL_BOT_TOKEN or os.getenv("BOT_TOKEN", "")).strip()
 
 # -- Admin Settings (set ADMIN_IDS in Railway Variables) --
@@ -58,7 +58,7 @@ ADMIN_IDS, INVALID_ADMIN_IDS = _parse_admin_ids(os.getenv("ADMIN_IDS", ""))
 # Use /tmp on Railway - ephemeral but always writable.
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/mediagrab_downloads")
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB Telegram Bot API limit
-MAX_DOWNLOADS_PER_MINUTE = _parse_int_env("MAX_DOWNLOADS_PER_MINUTE", 5, min_value=1)
+MAX_DOWNLOADS_PER_MINUTE = _parse_int_env("MAX_DOWNLOADS_PER_MINUTE", 3, min_value=1)
 MAX_CONCURRENT_DOWNLOADS = _parse_int_env("MAX_CONCURRENT_DOWNLOADS", 3, min_value=1)
 MAX_DOWNLOAD_FOLDER_MB = _parse_int_env("MAX_DOWNLOAD_FOLDER_MB", 400, min_value=128)
 AUTO_CLEANUP_SECONDS = _parse_int_env("AUTO_CLEANUP_SECONDS", 120, min_value=30)
