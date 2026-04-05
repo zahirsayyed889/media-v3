@@ -738,7 +738,6 @@ async def _perform_download(message, user, url, platform, quality, lang, context
                 if result["type"] == "audio":
                     with open(result["path"], "rb") as f:
                         await message.reply_audio(
-                            chat_id=chat_id,
                             audio=f,
                             caption=caption,
                             parse_mode=constants.ParseMode.HTML,
@@ -753,7 +752,6 @@ async def _perform_download(message, user, url, platform, quality, lang, context
                 elif result["type"] == "video":
                     with open(result["path"], "rb") as f:
                         await message.reply_video(
-                            chat_id=chat_id,
                             video=f,
                             caption=caption,
                             parse_mode=constants.ParseMode.HTML,
