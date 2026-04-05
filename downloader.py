@@ -415,9 +415,9 @@ def format_duration(seconds: int | float | None) -> str:
 
 def _youtube_clients_for_attempt(attempt_idx: int) -> list[str]:
     variants = [
-        ["ios", "mweb", "web"],
-        ["android", "mweb", "web"],
-        ["tv_embedded", "web"],
+        ["ios", "android_vr", "mweb", "web"],
+        ["android_creator", "tv_embedded", "web"],
+        ["web", "android"],
     ]
     return variants[min(attempt_idx, len(variants) - 1)]
 
@@ -516,6 +516,12 @@ def _build_ydl_opts(
     yt_attempt_idx: int = 0,
 ) -> dict:
     opts: dict = {
+        "impersonate": "chrome",
+        "source_address": "0.0.0.0",
+        "sleep_interval_requests": 1.0,
+        "sleep_interval": 1,
+        "max_sleep_interval": 3,
+        "sleep_interval_subtitles": 1,
         "outtmpl": output_template,
         "paths": {"home": DOWNLOAD_DIR, "temp": DOWNLOAD_DIR},
         "restrictfilenames": True,
