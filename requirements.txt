@@ -1,2 +1,3 @@
-python-telegram-bot==21.6
+python-telegram-bot[rate-limiter]==21.6
+aiolimiter>=1.1.1,<2
 yt-dlp>=2025.1.1

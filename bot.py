@@ -929,16 +929,25 @@ def main():
         pool_timeout=120,
     )
 
-    app = (
+    rate_limiter = None
+    try:
+        rate_limiter = AIORateLimiter(max_retries=3)
+    except RuntimeError as exc:
+        logger.warning("AIORateLimiter unavailable (%s). Continuing without explicit rate limiter.", exc)
+
+    app_builder = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
         .request(request)
         .get_updates_request(request)
         .concurrent_updates(max(64, MAX_CONCURRENT_DOWNLOADS * 16))
-        .rate_limiter(AIORateLimiter(max_retries=3))
         .post_init(post_init)
-        .build()
     )
+
+    if rate_limiter is not None:
+        app_builder = app_builder.rate_limiter(rate_limiter)
+
+    app = app_builder.build()
 
     # Commands
     app.add_handler(CommandHandler("start",    cmd_start))
