@@ -516,7 +516,6 @@ def _build_ydl_opts(
     yt_attempt_idx: int = 0,
 ) -> dict:
     opts: dict = {
-        "impersonate": "chrome",
         "source_address": "0.0.0.0",
         "sleep_interval_requests": 1.0,
         "sleep_interval": 1,
